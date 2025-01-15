@@ -5,138 +5,143 @@ import { sankey as d3Sankey, sankeyLinkHorizontal } from "d3-sankey";
 /**
  * SankeyDiagram Component
  * This component renders an interactive Sankey Diagram using D3.js and React.
- * It allows users to interact with nodes such that:
- * - Only one node from each side (source or target) can be active at a time.
- * - When a node is clicked, the path between active source and target nodes is highlighted.
- * - Displays the value of the path on the highlighted path itself.
+ * It processes data from a CSV file, creates the Sankey layout, and handles interactivity.
  * 
  * @param {Object} props - Component properties
- * @param {Object} props.data - The Sankey graph data containing nodes and links
+ * @param {string} props.fileName - The filename of the CSV data
  * @param {number} props.width - The width of the SVG canvas
  * @param {number} props.height - The height of the SVG canvas
  */
-const SankeyDiagram = ({ data, width, height }) => {
-  // Reference to the SVG element
+const SankeyDiagram = ({ fileName, width, height }) => {
   const svgRef = useRef();
-
-  // State to track the currently active nodes (one per side: source and target)
+  const [sankeyData, setSankeyData] = useState(null);
   const [activeNodes, setActiveNodes] = useState({ source: null, target: null });
 
-  // Effect to handle rendering and interactivity updates whenever data, dimensions, or activeNodes change
+  // Effect to load and process data
   useEffect(() => {
-    // Early return if no data is provided
-    if (!data) return;
+    const loadData = async () => {
+      const rawData = await d3.csv(fileName);
+      const nodesSet = new Set();
 
-    // Set up the Sankey layout
+      const links = rawData.map((row) => {
+        nodesSet.add(row.vote);
+        nodesSet.add(row.group);
+        return { source: row.vote, target: row.group, value: +row.value };
+      });
+
+      const nodes = Array.from(nodesSet).map((name) => ({ name }));
+      const nodeIndex = new Map(nodes.map((node, i) => [node.name, i]));
+
+      const formattedLinks = links.map((link) => ({
+        source: nodeIndex.get(link.source),
+        target: nodeIndex.get(link.target),
+        value: link.value,
+      }));
+
+      setSankeyData({ nodes, links: formattedLinks });
+    };
+
+    loadData();
+  }, [fileName]);
+
+  // Effect to render the diagram when data or interactivity state changes
+  useEffect(() => {
+    if (!sankeyData) return;
+
     const sankey = d3Sankey()
-      .nodeWidth(80) // Width of the nodes
-      .nodePadding(15) // Padding between nodes
-      .extent([[1, 1], [width - 1, height - 1]]); // Diagram extent within the SVG
+      .nodeWidth(80)
+      .nodePadding(15)
+      .extent([[1, 1], [width - 1, height - 1]]);
 
-    // Generate the Sankey graph (nodes and links)
-    const graph = sankey(data);
+    const graph = sankey(sankeyData);
 
-    // Select and clear the SVG element
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
-    // ======= Render Links =======
+    // Render links
     const linkGroup = svg.append("g").selectAll("path")
       .data(graph.links)
       .join("path")
-      .attr("d", sankeyLinkHorizontal()) // Define link path
-      .attr("fill", "none") // No fill for links
-      .attr("stroke", "#aaa") // Default link color
-      .attr("stroke-width", (d) => Math.max(1, d.width)) // Width based on flow value
-      .attr("opacity", 0.7); // Slightly transparent links
+      .attr("d", sankeyLinkHorizontal())
+      .attr("fill", "none")
+      .attr("stroke", "rgba(170, 170, 170, 0.5)") // Semi-transparent gray
+      .attr("stroke-width", (d) => Math.max(1, d.width))
+      .attr("opacity", 0.5); // Transparent links
 
-    // ======= Render Nodes =======
+    // Render nodes
     const nodeGroup = svg.append("g").selectAll("rect")
       .data(graph.nodes)
       .join("rect")
-      .attr("x", (d) => d.x0) // Position based on Sankey layout
+      .attr("x", (d) => d.x0)
       .attr("y", (d) => d.y0)
-      .attr("width", (d) => d.x1 - d.x0) // Width defined by layout
-      .attr("height", (d) => d.y1 - d.y0) // Height defined by layout
-      .attr("fill", "steelblue") // Default node color
-      .attr("stroke", "#000") // Outline color
+      .attr("width", (d) => d.x1 - d.x0)
+      .attr("height", (d) => d.y1 - d.y0)
+      .attr("fill", "rgba(70, 130, 180, 0.6)") // Semi-transparent steel blue
+      .attr("stroke", "rgba(0, 0, 0, 0.8)") // Semi-transparent black outline
+      .attr("stroke-width", 1)
       .on("click", (event, d) => {
-        // Determine if the clicked node is a source or target
-        const isSource = d.depth === 0; // Nodes on the left side are sources
+        const isSource = d.depth === 0;
         const side = isSource ? "source" : "target";
-
-        // Update state to set the active node for the corresponding side
         setActiveNodes((prev) => ({
           ...prev,
-          [side]: prev[side]?.name === d.name ? null : d, // Toggle node activation
+          [side]: prev[side]?.name === d.name ? null : d,
         }));
       });
 
-    // ======= Render Node Labels =======
+    // Render labels
     svg.append("g").selectAll("text")
       .data(graph.nodes)
       .join("text")
-      .attr("x", (d) => (d.depth === 0 ? d.x1 + 6 : d.x0 - 6)) // Position based on depth
-      .attr("text-anchor", (d) => (d.depth === 0 ? "start" : "end")) // Align text
-      .attr("y", (d) => (d.y0 + d.y1) / 2) // Vertically center text
-      .attr("dy", "0.35em") // Adjust vertical alignment
-      .text((d) => `${d.name} (${d.value})`) // Display node name and value
-      .attr("fill", "black") // Text color
-      .style("font-size", "14px"); // Font size
+      .attr("x", (d) => (d.depth === 0 ? d.x1 + 6 : d.x0 - 6))
+      .attr("text-anchor", (d) => (d.depth === 0 ? "start" : "end"))
+      .attr("y", (d) => (d.y0 + d.y1) / 2)
+      .attr("dy", "0.35em")
+      .text((d) => `${d.name} (${d.value})`)
+      .attr("fill", "black")
+      .style("font-size", "14px");
 
-    // ======= Highlight Active Paths and Render Path Labels =======
     if (activeNodes.source && activeNodes.target) {
       const { source, target } = activeNodes;
 
-      linkGroup.attr("stroke", (d) => {
-        // Highlight the link if it connects the active source and target nodes
-        if (
-          (d.source.name === source.name && d.target.name === target.name) ||
-          (d.source.name === target.name && d.target.name === source.name)
-        ) {
-          return "orange"; // Highlight color
-        }
-        return "#aaa"; // Default color
-      });
+      linkGroup.attr("stroke", (d) =>
+        (d.source.name === source.name && d.target.name === target.name) ||
+        (d.source.name === target.name && d.target.name === source.name)
+          ? "orange"
+          : "rgba(170, 170, 170, 0.5)"
+      );
 
-      // Add labels on highlighted paths
       svg.append("g")
         .selectAll("text")
         .data(graph.links)
         .join("text")
-        .attr("x", (d) => (d.source.x1 + d.target.x0) / 2) // Position at the center of the link
-        .attr("y", (d) => (d.source.y1 + d.source.y0) / 2) // Vertical alignment
+        .attr("x", (d) => (d.source.x1 + d.target.x0) / 2)
+        .attr("y", (d) => (d.source.y1 + d.source.y0) / 2)
         .attr("text-anchor", "middle")
         .attr("dy", "0.35em")
         .attr("font-size", "36px")
         .attr("fill", (d) =>
           (d.source.name === source.name && d.target.name === target.name) ||
           (d.source.name === target.name && d.target.name === source.name)
-            ? "orange" // Label color matches highlight
+            ? "orange"
             : "none"
         )
         .text((d) =>
           (d.source.name === source.name && d.target.name === target.name) ||
           (d.source.name === target.name && d.target.name === source.name)
-            ? d.value // Show value for highlighted links
+            ? d.value
             : ""
         );
     } else {
-      // Reset link colors if no valid active path
-      linkGroup.attr("stroke", "#aaa");
+      linkGroup.attr("stroke", "rgba(170, 170, 170, 0.5)");
     }
 
-    // ======= Highlight Active Nodes =======
-    nodeGroup.attr("fill", (d) => {
-      // Highlight nodes if they are active
-      if (activeNodes.source?.name === d.name || activeNodes.target?.name === d.name) {
-        return "orange";
-      }
-      return "steelblue"; // Default node color
-    });
-  }, [data, width, height, activeNodes]); // Dependencies for the effect
+    nodeGroup.attr("fill", (d) =>
+      activeNodes.source?.name === d.name || activeNodes.target?.name === d.name
+        ? "orange"
+        : "rgba(70, 130, 180, 0.6)"
+    );
+  }, [sankeyData, width, height, activeNodes]);
 
-  // Render the SVG container
   return <svg ref={svgRef} width={width} height={height}></svg>;
 };
 
