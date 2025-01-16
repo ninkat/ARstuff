@@ -6,7 +6,16 @@ import "./App.css";
 const App = () => {
   return (
     <div className="app-container">
-      <HandTracking OverlayComponent={<SankeyDiagram fileName="/data.csv" width={1280} height={720} />} />
+      {/* HandTracking is our wrapper that does pinch detection and simulates clicks. */}
+      <HandTracking 
+        OverlayComponent={
+          <SankeyDiagram 
+            fileName="/data.csv" 
+            width={1280} 
+            height={720} 
+          />
+        }
+      />
     </div>
   );
 };

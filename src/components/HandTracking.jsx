@@ -7,40 +7,62 @@ const HandTracking = ({ OverlayComponent }) => {
   const canvasRef = useRef(null);
   const [gestures, setGestures] = useState({ left: "None", right: "None" });
 
+  // Tracks the pinch gesture timing to simulate clicks
   const gestureState = useRef({
     left: { start: null, clicked: false },
     right: { start: null, clicked: false },
-  }); // Track gesture timing and click state
-  const landmarkSmoothing = useRef({}); // For smoothing
-  const clickPosition = useRef(null); // Track the position of the click for the blue circle
+  });
 
-  const simulateClick = (x, y) => {
-    const element = document.elementFromPoint(x, y); // Get the element under the given coordinates
+  // For smoothing the landmark positions
+  const landmarkSmoothing = useRef({});
+  // Position where we draw the 'click' circle
+  const clickPosition = useRef(null);
+
+  // ---------------------------------------------------------
+  // Simulate a click by translating canvas coords to DOM coords
+  // ---------------------------------------------------------
+  const simulateClick = (xCanvas, yCanvas) => {
+    // 1) Get bounding rect of the canvas
+    const rect = canvasRef.current.getBoundingClientRect();
+  
+    // 2) Flip the X coordinate to account for the mirrored canvas
+    const xCanvasFlipped = canvasRef.current.width - xCanvas;
+  
+    // 3) Translate from canvas coords to DOM/page coords
+    const xPage = rect.left + xCanvasFlipped;
+    const yPage = rect.top + yCanvas;
+  
+    // See which element is at that position in the DOM
+    const element = document.elementFromPoint(xPage, yPage);
     if (element) {
-      // Log details about the element
       console.log("Element details:", {
-        tagName: element.tagName, // HTML tag of the element
-        id: element.id, // ID attribute
-        classList: Array.from(element.classList), // List of classes
+        tagName: element.tagName,
+        id: element.id,
+        classList: Array.from(element.classList),
         attributes: Array.from(element.attributes).map((attr) => ({
           name: attr.name,
           value: attr.value,
-        })), // All attributes
-        textContent: element.textContent.trim(), // Text content
+        })),
+        textContent: element.textContent.trim(),
       });
   
-      // Create and dispatch the click event
+      // Create and dispatch the click event at DOM coordinates
       const event = new MouseEvent("click", {
         bubbles: true,
         cancelable: true,
-        clientX: x,
-        clientY: y,
+        clientX: xPage,
+        clientY: yPage,
       });
-      element.dispatchEvent(event); // Dispatch the click event to the element
+      element.dispatchEvent(event);
     }
-    clickPosition.current = { x, y }; // Save the position of the click
+  
+    // Draw the blue circle in the canvas at the pinch location
+    clickPosition.current = { x: xCanvas, y: yCanvas };
   };
 
+  // ---------------------------------------------------------
+  // Setup the MediaPipe Hands
+  // ---------------------------------------------------------
   useEffect(() => {
     const hands = new Hands({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
@@ -53,29 +75,36 @@ const HandTracking = ({ OverlayComponent }) => {
       minTrackingConfidence: 0.5,
     });
 
-    const smoothLandmarks = (landmarks, hand) => {
-      if (!landmarkSmoothing.current[hand]) {
-        landmarkSmoothing.current[hand] = landmarks.map((landmark) => ({ ...landmark }));
+    // Smoothing function
+    const smoothLandmarks = (landmarks, handLabel) => {
+      if (!landmarkSmoothing.current[handLabel]) {
+        landmarkSmoothing.current[handLabel] = landmarks.map((lm) => ({ ...lm }));
       }
-
       return landmarks.map((landmark, index) => {
+        const prev = landmarkSmoothing.current[handLabel][index];
         const smoothed = {
-          x: 0.7 * landmarkSmoothing.current[hand][index].x + 0.3 * landmark.x,
-          y: 0.7 * landmarkSmoothing.current[hand][index].y + 0.3 * landmark.y,
+          x: 0.7 * prev.x + 0.3 * landmark.x,
+          y: 0.7 * prev.y + 0.3 * landmark.y,
         };
-        landmarkSmoothing.current[hand][index] = smoothed;
+        landmarkSmoothing.current[handLabel][index] = smoothed;
         return smoothed;
       });
     };
 
+    // Draw the results on the canvas and trigger a simulated click on pinch
     const handsOnResults = (results) => {
       const canvasCtx = canvasRef.current.getContext("2d");
+      const { width, height } = canvasRef.current;
+
       canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      canvasCtx.clearRect(0, 0, width, height);
+
+      // Optional: grayscale, flip horizontally for "mirror" effect
       canvasCtx.filter = "grayscale(100%)";
-      canvasCtx.setTransform(-1, 0, 0, 1, canvasRef.current.width, 0);
-      canvasCtx.drawImage(results.image, 0, 0, canvasRef.current.width, canvasRef.current.height);
+      canvasCtx.setTransform(-1, 0, 0, 1, width, 0);
+      canvasCtx.drawImage(results.image, 0, 0, width, height);
       canvasCtx.filter = "none";
+      // End flipping
 
       const newGestures = { left: "None", right: "None" };
 
@@ -87,9 +116,9 @@ const HandTracking = ({ OverlayComponent }) => {
           const thumbTip = smoothedLandmarks[4];
           const indexTip = smoothedLandmarks[8];
 
+          // Basic pinch detection
           const distance = Math.sqrt(
-            Math.pow(thumbTip.x - indexTip.x, 2) +
-              Math.pow(thumbTip.y - indexTip.y, 2)
+            Math.pow(thumbTip.x - indexTip.x, 2) + Math.pow(thumbTip.y - indexTip.y, 2)
           );
 
           if (distance < 0.05) {
@@ -102,13 +131,16 @@ const HandTracking = ({ OverlayComponent }) => {
 
               const duration = Date.now() - gestureState.current[hand].start;
               if (duration >= 500) {
-                // Map normalized coordinates to screen coordinates
-                const x = thumbTip.x * canvasRef.current.width;
-                const y = thumbTip.y * canvasRef.current.height;
+                // Coordinates in the *canvas* space
+                const xCanvas = thumbTip.x * width;
+                const yCanvas = thumbTip.y * height;
 
-                simulateClick(x, y); // Simulate a click at the location
-                gestureState.current[hand].clicked = true; // Mark click as registered
-                gestureState.current[hand].start = null; // Reset start time
+                // Simulate a click at the location
+                simulateClick(xCanvas, yCanvas);
+                // Mark click as registered
+                gestureState.current[hand].clicked = true; 
+                // Reset start time
+                gestureState.current[hand].start = null;
               }
             }
           } else {
@@ -117,31 +149,20 @@ const HandTracking = ({ OverlayComponent }) => {
             gestureState.current[hand].clicked = false;
           }
 
+          // Draw red circles for each landmark
           smoothedLandmarks.forEach((landmark) => {
             canvasCtx.beginPath();
-            canvasCtx.arc(
-              landmark.x * canvasRef.current.width,
-              landmark.y * canvasRef.current.height,
-              2,
-              0,
-              2 * Math.PI
-            );
+            canvasCtx.arc(landmark.x * width, landmark.y * height, 2, 0, 2 * Math.PI);
             canvasCtx.fillStyle = "red";
             canvasCtx.fill();
           });
         });
       }
 
-      // Draw the blue circle at the last click position
+      // Draw a blue circle at the last click position
       if (clickPosition.current) {
         canvasCtx.beginPath();
-        canvasCtx.arc(
-          clickPosition.current.x,
-          clickPosition.current.y,
-          10, // Radius of the circle
-          0,
-          2 * Math.PI
-        );
+        canvasCtx.arc(clickPosition.current.x, clickPosition.current.y, 10, 0, 2 * Math.PI);
         canvasCtx.fillStyle = "blue";
         canvasCtx.fill();
       }
@@ -152,6 +173,7 @@ const HandTracking = ({ OverlayComponent }) => {
 
     hands.onResults(handsOnResults);
 
+    // Initialize camera
     const camera = new Camera(videoRef.current, {
       onFrame: async () => {
         await hands.send({ image: videoRef.current });
@@ -185,7 +207,7 @@ const HandTracking = ({ OverlayComponent }) => {
         <p>Right: {gestures.right}</p>
       </div>
 
-      {/* Webcam feed container */}
+      {/* Webcam feed + Canvas container */}
       <div style={{ position: "relative", width: "1280px", height: "720px" }}>
         <video ref={videoRef} style={{ display: "none" }} />
         <canvas
@@ -195,7 +217,7 @@ const HandTracking = ({ OverlayComponent }) => {
           style={{ position: "absolute", top: 0, left: 0, zIndex: 1 }}
         />
 
-        {/* Overlay Component */}
+        {/* Overlay Component on top */}
         <div
           style={{
             position: "absolute",
@@ -204,7 +226,9 @@ const HandTracking = ({ OverlayComponent }) => {
             width: "100%",
             height: "100%",
             zIndex: 2,
-            pointerEvents: "auto", // Allows interaction with the overlay component
+            // If you want the actual user mouse to pass through the overlay, 
+            // set pointerEvents: 'none'. For simulated clicks, this is not mandatory.
+            pointerEvents: "auto",
           }}
         >
           {OverlayComponent}

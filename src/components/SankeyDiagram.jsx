@@ -6,7 +6,7 @@ import { sankey as d3Sankey, sankeyLinkHorizontal } from "d3-sankey";
  * SankeyDiagram Component
  * This component renders an interactive Sankey Diagram using D3.js and React.
  * It processes data from a CSV file, creates the Sankey layout, and handles interactivity.
- * 
+ *
  * @param {Object} props - Component properties
  * @param {string} props.fileName - The filename of the CSV data
  * @param {number} props.width - The width of the SVG canvas
@@ -48,6 +48,7 @@ const SankeyDiagram = ({ fileName, width, height }) => {
   useEffect(() => {
     if (!sankeyData) return;
 
+    // Create Sankey layout
     const sankey = d3Sankey()
       .nodeWidth(80)
       .nodePadding(15)
@@ -59,27 +60,35 @@ const SankeyDiagram = ({ fileName, width, height }) => {
     svg.selectAll("*").remove();
 
     // Render links
-    const linkGroup = svg.append("g").selectAll("path")
+    const linkGroup = svg
+      .append("g")
+      .selectAll("path")
       .data(graph.links)
       .join("path")
       .attr("d", sankeyLinkHorizontal())
       .attr("fill", "none")
-      .attr("stroke", "rgba(170, 170, 170, 0.5)") // Semi-transparent gray
+      .attr("stroke", "rgba(170, 170, 170, 0.5)")
       .attr("stroke-width", (d) => Math.max(1, d.width))
-      .attr("opacity", 0.5); // Transparent links
+      .attr("opacity", 0.5);
+      // If you want the links to be clickable, set pointer-events to all:
+      // .attr("pointer-events", "all")
 
     // Render nodes
-    const nodeGroup = svg.append("g").selectAll("rect")
+    const nodeGroup = svg
+      .append("g")
+      .selectAll("rect")
       .data(graph.nodes)
       .join("rect")
       .attr("x", (d) => d.x0)
       .attr("y", (d) => d.y0)
       .attr("width", (d) => d.x1 - d.x0)
       .attr("height", (d) => d.y1 - d.y0)
-      .attr("fill", "rgba(70, 130, 180, 0.6)") // Semi-transparent steel blue
-      .attr("stroke", "rgba(0, 0, 0, 0.8)") // Semi-transparent black outline
+      .attr("fill", "rgba(70, 130, 180, 0.6)") // semi-transparent steel blue
+      .attr("stroke", "rgba(0, 0, 0, 0.8)")    // semi-transparent black outline
       .attr("stroke-width", 1)
+      .attr("pointer-events", "all") // Ensure the rects can receive pointer events
       .on("click", (event, d) => {
+        // Example toggling between active source/target
         const isSource = d.depth === 0;
         const side = isSource ? "source" : "target";
         setActiveNodes((prev) => ({
@@ -89,7 +98,9 @@ const SankeyDiagram = ({ fileName, width, height }) => {
       });
 
     // Render labels
-    svg.append("g").selectAll("text")
+    svg
+      .append("g")
+      .selectAll("text")
       .data(graph.nodes)
       .join("text")
       .attr("x", (d) => (d.depth === 0 ? d.x1 + 6 : d.x0 - 6))
@@ -100,9 +111,9 @@ const SankeyDiagram = ({ fileName, width, height }) => {
       .attr("fill", "black")
       .style("font-size", "14px");
 
+    // Highlight logic if source and target both selected
     if (activeNodes.source && activeNodes.target) {
       const { source, target } = activeNodes;
-
       linkGroup.attr("stroke", (d) =>
         (d.source.name === source.name && d.target.name === target.name) ||
         (d.source.name === target.name && d.target.name === source.name)
@@ -110,7 +121,9 @@ const SankeyDiagram = ({ fileName, width, height }) => {
           : "rgba(170, 170, 170, 0.5)"
       );
 
-      svg.append("g")
+      // Render link label (large number) in the middle if both source/target are active
+      svg
+        .append("g")
         .selectAll("text")
         .data(graph.links)
         .join("text")
@@ -135,6 +148,7 @@ const SankeyDiagram = ({ fileName, width, height }) => {
       linkGroup.attr("stroke", "rgba(170, 170, 170, 0.5)");
     }
 
+    // Color the nodes if they match active source/target
     nodeGroup.attr("fill", (d) =>
       activeNodes.source?.name === d.name || activeNodes.target?.name === d.name
         ? "orange"
