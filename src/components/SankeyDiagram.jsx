@@ -11,6 +11,12 @@ import { sankey as d3Sankey, sankeyLinkHorizontal } from "d3-sankey";
  * @param {string} props.fileName - The filename of the CSV data
  * @param {number} props.width - The width of the SVG canvas
  * @param {number} props.height - The height of the SVG canvas
+ *
+ * CSV File Specification:
+ * - The CSV file should have exactly three columns:
+ *   - The 1st column represents the "source" nodes.
+ *   - The 2nd column represents the "target" nodes.
+ *   - The 3rd column represents the "value" of the links.
  */
 const SankeyDiagram = ({ fileName, width, height }) => {
   const svgRef = useRef();
@@ -24,9 +30,13 @@ const SankeyDiagram = ({ fileName, width, height }) => {
       const nodesSet = new Set();
 
       const links = rawData.map((row) => {
-        nodesSet.add(row.vote);
-        nodesSet.add(row.group);
-        return { source: row.vote, target: row.group, value: +row.value };
+        const source = Object.values(row)[0]; // First column
+        const target = Object.values(row)[1]; // Second column
+        const value = +Object.values(row)[2]; // Third column
+
+        nodesSet.add(source);
+        nodesSet.add(target);
+        return { source, target, value };
       });
 
       const nodes = Array.from(nodesSet).map((name) => ({ name }));
@@ -70,8 +80,6 @@ const SankeyDiagram = ({ fileName, width, height }) => {
       .attr("stroke", "rgba(170, 170, 170, 0.5)")
       .attr("stroke-width", (d) => Math.max(1, d.width))
       .attr("opacity", 0.5);
-      // If you want the links to be clickable, set pointer-events to all:
-      // .attr("pointer-events", "all")
 
     // Render nodes
     const nodeGroup = svg
@@ -84,7 +92,7 @@ const SankeyDiagram = ({ fileName, width, height }) => {
       .attr("width", (d) => d.x1 - d.x0)
       .attr("height", (d) => d.y1 - d.y0)
       .attr("fill", "rgba(70, 130, 180, 0.6)") // semi-transparent steel blue
-      .attr("stroke", "rgba(0, 0, 0, 0.8)")    // semi-transparent black outline
+      .attr("stroke", "rgba(0, 0, 0, 0.8)") // semi-transparent black outline
       .attr("stroke-width", 1)
       .attr("pointer-events", "all") // Ensure the rects can receive pointer events
       .on("click", (event, d) => {
@@ -148,11 +156,10 @@ const SankeyDiagram = ({ fileName, width, height }) => {
       linkGroup.attr("stroke", "rgba(170, 170, 170, 0.5)");
     }
 
-    // Color the nodes if they match active source/target
     nodeGroup.attr("fill", (d) =>
       activeNodes.source?.name === d.name || activeNodes.target?.name === d.name
-        ? "orange"
-        : "rgba(70, 130, 180, 0.6)"
+        ? "rgba(255, 165, 0, 0.6)" // Semi-transparent orange
+        : "rgba(70, 130, 180, 0.6)" // Semi-transparent steel blue
     );
   }, [sankeyData, width, height, activeNodes]);
 
