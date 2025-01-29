@@ -5,25 +5,20 @@ import { Camera } from "@mediapipe/camera_utils";
 const HandTracking = ({ OverlayComponent }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const dotsRef = useRef([]); // Use a ref to manage dots without triggering re-renders
-
   const gestureState = useRef({
     left: { start: null, clicked: false },
     right: { start: null, clicked: false },
   });
-
   const landmarkSmoothing = useRef({});
+  const hoverState = useRef({
+    left: { element: null },
+    right: { element: null },
+  });
 
-  // Add a new dot at the specified position
-  const addDot = (x, y) => {
-    dotsRef.current.push({ x, y, timestamp: Date.now(), opacity: 1 });
-  };
-
-  // Simulate a click and add a dot
-  const simulateClick = (xCanvas, yCanvas) => {
+  // Simulate a click for a specific hand
+  const simulateClick = (xCanvas, yCanvas, hand) => {
     const rect = canvasRef.current.getBoundingClientRect();
-    const xCanvasFlipped = canvasRef.current.width - xCanvas;
-    const xPage = rect.left + xCanvasFlipped;
+    const xPage = rect.left + (canvasRef.current.width - xCanvas);
     const yPage = rect.top + yCanvas;
 
     const element = document.elementFromPoint(xPage, yPage);
@@ -37,7 +32,30 @@ const HandTracking = ({ OverlayComponent }) => {
       element.dispatchEvent(event);
     }
 
-    addDot(xCanvas, yCanvas); // Add a new dot for this click
+    gestureState.current[hand].clicked = true;
+  };
+
+  // Simulate hover effect for a specific hand
+  const simulateHover = (xCanvas, yCanvas, hand) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+    const xPage = rect.left + (canvasRef.current.width - xCanvas);
+    const yPage = rect.top + yCanvas;
+
+    const hoveredElement = document.elementFromPoint(xPage, yPage);
+
+    if (hoverState.current[hand].element !== hoveredElement) {
+      if (hoverState.current[hand].element) {
+        hoverState.current[hand].element.dispatchEvent(
+          new MouseEvent("mouseout", { bubbles: true, cancelable: true })
+        );
+      }
+      if (hoveredElement) {
+        hoveredElement.dispatchEvent(
+          new MouseEvent("mouseover", { bubbles: true, cancelable: true })
+        );
+      }
+      hoverState.current[hand].element = hoveredElement;
+    }
   };
 
   useEffect(() => {
@@ -46,7 +64,7 @@ const HandTracking = ({ OverlayComponent }) => {
     });
 
     hands.setOptions({
-      maxNumHands: 2,
+      maxNumHands: 2, // Support both hands
       modelComplexity: 1,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
@@ -81,7 +99,7 @@ const HandTracking = ({ OverlayComponent }) => {
 
       if (results.multiHandLandmarks && results.multiHandedness) {
         results.multiHandLandmarks.forEach((landmarks, index) => {
-          const hand = results.multiHandedness[index].label.toLowerCase();
+          const hand = results.multiHandedness[index].label.toLowerCase(); // "left" or "right"
           const smoothedLandmarks = smoothLandmarks(landmarks, hand);
 
           const thumbTip = smoothedLandmarks[4];
@@ -91,6 +109,14 @@ const HandTracking = ({ OverlayComponent }) => {
             Math.pow(thumbTip.x - indexTip.x, 2) + Math.pow(thumbTip.y - indexTip.y, 2)
           );
 
+          // Convert normalized coordinates to canvas pixels
+          const xCanvas = indexTip.x * width;
+          const yCanvas = indexTip.y * height;
+
+          // Simulate hover for this hand
+          simulateHover(xCanvas, yCanvas, hand);
+
+          // Pinch detection and click simulation for this hand
           if (distance < 0.05) {
             if (!gestureState.current[hand].clicked) {
               if (!gestureState.current[hand].start) {
@@ -99,9 +125,7 @@ const HandTracking = ({ OverlayComponent }) => {
 
               const duration = Date.now() - gestureState.current[hand].start;
               if (duration >= 500) {
-                const xCanvas = thumbTip.x * width;
-                const yCanvas = thumbTip.y * height;
-                simulateClick(xCanvas, yCanvas);
+                simulateClick(xCanvas, yCanvas, hand);
                 gestureState.current[hand].clicked = true;
                 gestureState.current[hand].start = null;
               }
@@ -111,31 +135,13 @@ const HandTracking = ({ OverlayComponent }) => {
             gestureState.current[hand].clicked = false;
           }
 
-          smoothedLandmarks.forEach((landmark) => {
-            canvasCtx.beginPath();
-            canvasCtx.arc(landmark.x * width, landmark.y * height, 2, 0, 2 * Math.PI);
-            canvasCtx.fillStyle = "red";
-            canvasCtx.fill();
-          });
+          // Draw an indicator at indexTip (each hand gets its own color)
+          canvasCtx.beginPath();
+          canvasCtx.arc(xCanvas, yCanvas, 6, 0, 2 * Math.PI);
+          canvasCtx.fillStyle = hand === "left" ? "red" : "blue"; // Left hand is red, right is blue
+          canvasCtx.fill();
         });
       }
-
-      // Update dots with fading opacity and remove expired dots
-      const now = Date.now();
-      dotsRef.current = dotsRef.current
-        .map((dot) => ({
-          ...dot,
-          opacity: Math.max(0, 1 - (now - dot.timestamp) / 2000),
-        }))
-        .filter((dot) => now - dot.timestamp < 2000);
-
-      // Draw dots with fading opacity
-      dotsRef.current.forEach((dot) => {
-        canvasCtx.beginPath();
-        canvasCtx.arc(dot.x, dot.y, 10, 0, 2 * Math.PI);
-        canvasCtx.fillStyle = `rgba(0, 0, 255, ${dot.opacity})`;
-        canvasCtx.fill();
-      });
 
       canvasCtx.restore();
     };
@@ -172,7 +178,7 @@ const HandTracking = ({ OverlayComponent }) => {
             position: "absolute",
             top: "50%",
             left: "50%",
-            transform: "translate(-50%, -50%)", // Center the overlay both vertically and horizontally
+            transform: "translate(-50%, -50%)",
             zIndex: 2,
             pointerEvents: "auto",
           }}
